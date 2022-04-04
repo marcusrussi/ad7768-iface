@@ -16,7 +16,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
-#include "mraa/spi.h"
+#include <mraa/spi.h>
+#include "log.h"
 
 #define SPI_BUS 0
 #define SPI_CS 0
@@ -31,7 +32,7 @@ int main(int argc, char *argv[])
     /* initialize SPI bus */
     spi = mraa_spi_init_raw(SPI_BUS, SPI_CS);
     if (spi == NULL) {
-        fprintf(stderr, "Failed to initialize SPI\n");
+	log_error("Failed to initialize SPI");
         mraa_deinit();
         return EXIT_FAILURE;
     }
@@ -46,41 +47,65 @@ int main(int argc, char *argv[])
     }
     status = mraa_spi_bit_per_word(spi, 8);
     if (status != MRAA_SUCCESS) {
-        fprintf(stdout, "Failed to set SPI Device to 8Bit mode\n");
+        log_error("Failed to set SPI Device to 8Bit mode");
         goto err_exit;
     }
 
-    uint8_t data[2] = {0x82, 0x00};
-    uint8_t rxbuf[2] = {0x00, 0x00};
+    // Register query
+    uint8_t data_read9[4] = {0x89, 0x00, 0x89, 0x00};
+    uint8_t data_reset[4] = {0x06, 0x03, 0x06, 0x02};
+    uint8_t rxbuf[4] = {0x00, 0x00, 0x00, 0x00};
     int length = 2;
 
-    /* Example AD7768-specific transfer */
-    status = mraa_spi_transfer_buf(spi, data, rxbuf, length);
+    log_info("Reading status register @ 0x09...0x04 means no clock detected");
+    status = mraa_spi_transfer_buf(spi, data_read9, rxbuf, length);
+    status = mraa_spi_transfer_buf(spi, data_read9 + 2, rxbuf + 2, length);
 
     if (status != MRAA_SUCCESS) {
-        fprintf(stdout, "Failed to make first transfer\n");
+        log_error("Failed to make first transfer");
         goto err_exit;
     }
 
-    /* Example AD7768-specific transfer */
-    status = mraa_spi_transfer_buf(spi, data, rxbuf, length);
+    log_debug("AD7768 response:");
+    log_debug("<%02X>, <%02X>, <%02X>, <%02X>", rxbuf[0], rxbuf[1], rxbuf[2], rxbuf[3]);
+
+    // Soft reset
+    /* Perform the soft reset */
+    log_info("Resetting AD7768");
+    status = mraa_spi_transfer_buf(spi, data_reset, rxbuf, length);
+    status = mraa_spi_transfer_buf(spi, data_reset + 2, rxbuf + 2, length);
 
     if (status != MRAA_SUCCESS) {
-        fprintf(stdout, "Failed to make second transfer\n");
+        log_error("Failed to make first transfer");
         goto err_exit;
     }
 
-    printf("AD7768 response:\n");
-    printf("<%08X>\n", rxbuf[1]);
+    usleep(10000);
+
+    log_debug("AD7768 reset response:");
+    log_debug("<%02X>, <%02X>, <%02X>, <%02X>", rxbuf[0], rxbuf[1], rxbuf[2], rxbuf[3]);
+
+    /* Read the external clock check register */
+    log_info("Reading status register @ 0x09...0x04 means no clock detected");
+    status = mraa_spi_transfer_buf(spi, data_read9, rxbuf, length);
+    status = mraa_spi_transfer_buf(spi, data_read9 + 2, rxbuf + 2, length);
+    
+    if (status != MRAA_SUCCESS) {
+        log_error("Failed to make second transfer");
+        goto err_exit;
+    }
+
+    log_debug("AD7768 response:");
+    log_debug("<%02X>, <%02X>, <%02X>, <%02X>", rxbuf[0], rxbuf[1], rxbuf[2], rxbuf[3]);
 
     /* stop spi */
     mraa_spi_stop(spi);
 
-    printf("Success!\n");
+    log_info("Success!");
     exit(EXIT_SUCCESS);
 
 err_exit:
-    printf("Fail!\n");
+    log_fatal("Fail!");
     exit(EXIT_FAILURE);
 }
 
